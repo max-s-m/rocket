@@ -9,6 +9,7 @@ tokenTable = {
     'print': 'keyword', 'scan': 'keyword',
     'if': 'keyword', 'else': 'keyword',
     'while': 'keyword', 'for': 'keyword',
+    'function': 'keyword',
 
     # логічні оператори
     '&&': 'logic_op', '||': 'logic_op', '!': 'logic_op',
@@ -367,9 +368,6 @@ if sourceCode:
 
 # ---------------- Друк таблиць ----------------
 if FSuccess[1]:
-    print('-' * 80)
-    print('--- Lexical analysis tables ---')
-
 
     def format_table_of_symb_tabular(symb_table):
         header = f"| {'Line':<5} | {'Lexeme':<20} | {'Token':<15} | {'Index':<5} |"
