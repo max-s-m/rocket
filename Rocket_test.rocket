@@ -46,6 +46,11 @@ a = (a + 1);
 pi = pi;
 { }                         // фігурні дужки як спецсимволи
 
+//функція
+func myfunc(){
+print("This is func");
+}
+
 // if / elif / else
 if (a > 0) {
     print("Positive");
