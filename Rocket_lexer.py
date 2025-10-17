@@ -143,7 +143,6 @@ numChar = -1
 char = ''
 lexeme = ''
 
-
 # ---------------- Основний цикл ----------------
 def lex():
     global state, numLine, char, lexeme, numChar, FSuccess
@@ -152,10 +151,20 @@ def lex():
             char = nextChar()
             classCh = classOfChar(char)
             state = nextState(state, classCh)
+            # блок перевірки на помилку
+            if state in Ferror:
+                # лексема з одного символу
+                if state in (1, 11):
+                    lexeme = char
+                # помилки типу & чи |
+                elif state == 20:
+                    lexeme += char
+                fail() # обробник помилок і завершення роботу
+                return
 
             # якщо ми в коментарі, продовжуємо до кінця рядка
             if state == 13:
-                lexeme = ''  # очищення лексеми
+                lexeme = ''
                 continue
 
             if is_final(state):
@@ -168,7 +177,8 @@ def lex():
         print('\nLexer: Lexical analysis done')
         FSuccess = ('Lexer', True)
     except SystemExit as e:
-        print(f'\nLexer: ERROR {e}')
+        # виклик exit() з fail()
+        print(f'\nLexer: A lexical error occurred.')
 
 
 # ---------------- Обробка фінальних станів ----------------
@@ -189,22 +199,15 @@ def processing():
                 token = tokenTable[lexeme]
                 if token == 'boolval':
                     index = indexIdConst_for_bool_or_str('boolval', lexeme)
-                    # index_str = str(index) if index != '' else ''
-                    # print(f"{numLine:<3d} {lexeme:<15s} {token:<15s} {index_str:<5}")
                     tableOfLex[len(tableOfLex) + 1] = (numLine, lexeme, token, index)
                 else:  # keyword
                     # Ключові слова не отримують індекс
-                    # print(f"{numLine:<3d} {lexeme:<15s} {token:<15s}")
                     tableOfLex[len(tableOfLex) + 1] = (numLine, lexeme, token, '')
             else:  # звичайний ідентифікатор
                 index = indexIdConst(state, lexeme)
-                # index_str = str(index) if index != '' else ''
-                # print(f"{numLine:<3d} {lexeme:<15s} {token:<15s} {index_str:<5}")
                 tableOfLex[len(tableOfLex) + 1] = (numLine, lexeme, token, index)
         else:  # числа (intnum, realnum)
             index = indexIdConst(state, lexeme)
-            # index_str = str(index) if index != '' else ''
-            # print(f"{numLine:<3d} {lexeme:<15s} {token:<15s} {index_str:<5}")
             tableOfLex[len(tableOfLex) + 1] = (numLine, lexeme, token, index)
 
         lexeme = ''
@@ -216,7 +219,6 @@ def processing():
     if state in (16, 21, 22):
         lexeme += char
         token = getToken(state, lexeme)
-        # print(f"{numLine:<3d} {lexeme:<15s} {token:<15s}")
         tableOfLex[len(tableOfLex) + 1] = (numLine, lexeme, token, '')
         lexeme = ''
         state = initState
@@ -228,8 +230,6 @@ def processing():
         token = getToken(state, lexeme)
         inner_value = lexeme[1:-1]  # зберігання без лапок
         index = indexIdConst_for_bool_or_str('stringval', inner_value)
-        # index_str = str(index) if index != '' else ''
-        # print(f"{numLine:<3d} {lexeme:<15s} {token:<15s} {index_str:<5}")
         tableOfLex[len(tableOfLex) + 1] = (numLine, lexeme, token, index)
         lexeme = ''
         state = initState
@@ -239,7 +239,6 @@ def processing():
     if state == 14:
         lexeme += char
         token = getToken(state, lexeme)
-        # print(f'{numLine:<3d} {lexeme:<15s} {token:<15s}')
         tableOfLex[len(tableOfLex) + 1] = (numLine, lexeme, token, '')
         lexeme = ''
         state = initState
@@ -267,7 +266,7 @@ def fail():
         print(f'ERROR(line {numLine}): String ripped')
         exit(11)
     if state == 20:
-        print(f'ERROR(line {numLine}): Unexpected char "{char}" after "{lexeme}". Expected "&" or "|".')
+        print(f'ERROR(line {numLine}): Unexpected char "{char}" after "{lexeme}". Expected {lexeme}')
         exit(20)
 
 
@@ -297,7 +296,7 @@ def putCharBack(numChar):
 def classOfChar(char):
     if char == '.':
         return "dot"
-    if char.isalpha() or char == '_':
+    if char in  'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_':
         return "Letter"
     if char.isdigit():
         return "Digit"
