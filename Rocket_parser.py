@@ -25,7 +25,7 @@ print(('len_tableOfSymb', len_tableOfSymb))
 
 
 def parseProgram():
-    global numRow  # <-- ВИПРАВЛЕНО
+    global numRow
     print("\nParser Log:")
     while numRow <= len_tableOfSymb:
         numLine, lex, tok, _ = getSymb()
@@ -611,7 +611,6 @@ def parseFactor():
     return factor_type
 
 
-# ----------------- Допоміжні функції -----------------
 def parseToken(lexeme, token):
     global numRow
     indent = nextIndt()
@@ -664,8 +663,6 @@ def failParse(str_msg, details):
         print(f'Parser ERROR: \n\t {str_msg} ({lex},{tok}) in {numLine}. \n\t Expected - {expected}.')
         exit(2)
 
-
-# For pretty printing the parsing process
 stepIndt = 2
 indt = -2
 
@@ -682,16 +679,11 @@ def predIndt():
     return ' ' * indt
 
 
-# ----------------- Main launch -----------------
+# Очновний запуск
 if FSuccess == ('Rocket', True):
     try:
         parseProgram()
         print("\nPARSER SUCCESS")
-        #print("\nКінцева таблиця символів:")
-        #import json
-        #def default_serializer(o):
-        #    return str(o)
-        #print(json.dumps(st.tabName, indent=2, ensure_ascii=False, default=default_serializer))
     except SystemExit as e:
         print(f"\nPARSER FAIL")
 else:
