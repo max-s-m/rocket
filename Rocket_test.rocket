@@ -43,12 +43,16 @@ int sign = (a > 0) ? 1 : -1;
 // Дужки й пунктуація
 a = (a + 1);
 pi = pi;
-{ }                         // фігурні дужки як спецсимволи
+{ } // фігурні дужки як спецсимволи
 
 //функція
-function myfunc(){
+int myfunc(int a, int b){
 print("This is func");
+int c = a + b;
+return c;
 }
+
+int res = myfunc(a, 2);
 
 // if / elif / else
 if (a > 0) {
