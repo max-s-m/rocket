@@ -10,7 +10,7 @@ tokenTable = {
     'if': 'keyword', 'elif': 'keyword', 'else': 'keyword', # 'elif'
     'switch': 'keyword', 'case': 'keyword', 'default': 'keyword',
     'while': 'keyword', 'do': 'keyword', 'for': 'keyword', # 'do'
-    'function': 'keyword',
+    'return': 'keyword',
 
     # логічні оператори
     '&&': 'logic_op', '||': 'logic_op', '!': 'logic_op',
