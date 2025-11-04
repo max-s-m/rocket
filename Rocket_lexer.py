@@ -1,3 +1,6 @@
+# файл для тестування
+rocket_file_name = 'Rocket_test.rocket'
+
 # таблиця лексем, що визначаються за своїм повним ім'ям
 tokenTable = {
     # булеві константи
@@ -6,7 +9,7 @@ tokenTable = {
 
     # ключові слова (Rocket)
     'int': 'keyword', 'float': 'keyword', 'bool': 'keyword', 'string': 'keyword',
-    'print': 'keyword',
+    'print': 'keyword', 'void': 'keyword',
     'if': 'keyword', 'elif': 'keyword', 'else': 'keyword', # 'elif'
     'switch': 'keyword', 'case': 'keyword', 'default': 'keyword',
     'while': 'keyword', 'do': 'keyword', 'for': 'keyword', # 'do'
@@ -131,10 +134,10 @@ state = initState
 
 # ---------------- Ввід програми ----------------
 try:
-    with open('Rocket_test.rocket', 'r', encoding="utf-8") as f:
+    with open(rocket_file_name, 'r', encoding="utf-8") as f:
         sourceCode = f.read()
 except FileNotFoundError:
-    print("Error: Rocket_test.rocket not found. Please create the file.")
+    print(f"Error: {rocket_file_name} not found. Please create the file.")
     sourceCode = ""
 
 # --- Глобальні змінні ---
