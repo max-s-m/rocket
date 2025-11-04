@@ -3,6 +3,7 @@
 
 // Глобальні оголошення змінних з усіма типами
 int a = 0;
+int aa = 1;
 float pi = 3.14;
 bool ok = true;
 string name = "Rocket";
