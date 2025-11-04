@@ -1,6 +1,7 @@
 import Rocket_lexer as lexer
+import Rocket_semantics as semant
 
-# Запускаємо лексичний аналізатор
+# Запуск лексичного аналізатора
 if lexer.sourceCode:
     FSuccess = ('Rocket', lexer.FSuccess[1])
 else:
@@ -14,17 +15,26 @@ print(('len_tableOfSymb', len_tableOfSymb))
 
 def parseProgram():
     global numRow
-    print("\nParser Log (Syntax Analysis Only):")
+    print("\nParser Log (Syntax & Semantic Analysis):")
     while numRow <= len_tableOfSymb:
-        # Перевіряємо, чи ми не в кінці файлу перед тим, як читати токен
         if numRow > len_tableOfSymb:
             break
         _, lex, tok, _ = getSymb()
-        if lex in ('int', 'float', 'bool', 'string'):
+
+        if lex in ('int', 'float', 'bool', 'string', 'void'):
+            # Перевіряємо, чи наступний токен після ID - це '(', щоб відрізнити функцію
             if numRow + 2 < len_tableOfSymb and lexer.tableOfLex[numRow + 2][1] == '(':
-                parseFunctionDeclaration()
-            else:
+                # 'void' може бути тільки типом повернення функції, не змінної
+                if lex == 'void':
+                    parseFunctionDeclaration()
+                else:  # int, float, etc. можуть бути і тим, і тим
+                    parseFunctionDeclaration()
+            elif lex != 'void':  # 'void' не може бути типом змінної
                 parseDeclaration()
+            else:
+                failParse('type mismatch',
+                          (getSymb()[0], lex, tok, "'void' can only be used as a function return type"))
+
         elif lex in ('if', 'switch', 'while', 'do', 'for', 'print', 'return') or tok == 'id':
             parseStatement()
         elif tok == 'comment':
@@ -41,18 +51,23 @@ def parseDeclaration():
     print(indent + 'parseDeclaration():')
     global numRow
 
-    # Синтаксис: type id [= expression] ;
-    parseToken(getSymb()[1], 'keyword')  # Тип
+    line, declared_type, tok, _ = getSymb()
+    parseToken(declared_type, 'keyword')
 
     id_line, id_lex, id_tok, _ = getSymb()
     if id_tok != 'id':
         failParse('token mismatch', (id_line, id_lex, id_tok, 'expected identifier'))
     numRow += 1
 
+    val_status = 'undefined'
     if numRow <= len_tableOfSymb and getSymb()[1] == '=':
         parseToken('=', 'assign_op')
-        parseExpression()
+        expr_type = parseExpression()
+        semant.check_assign(declared_type, expr_type, line)
+        val_status = 'assigned'
 
+    attr = (len(semant.tabName[semant.currentContext]), 'variable', declared_type, val_status, '-')
+    semant.insertName(semant.currentContext, id_lex, id_line, attr)
     parseToken(';', 'punct')
     predIndt()
 
@@ -86,11 +101,29 @@ def parseStatement():
 def parseReturnStatement():
     indent = nextIndt()
     print(indent + 'parseReturnStatement():')
-
+    line, _, _, _ = getSymb()
     parseToken('return', 'keyword')
-    # return може бути без виразу (для void) або з виразом. Перевірка, чи наступний токен не крапка з комою
-    if getSymb()[1] != ';':
-        parseExpression()
+
+    # Перевірка, чи 'return' не знаходиться поза функцією
+    if not semant.functionContextStack:
+        semant.failSem("'return' cannot be used outside of a function body", line)
+
+    current_func = semant.functionContextStack[-1]
+    current_func['has_return'] = True  # Позначаємо, що return в функції є
+    expected_type = current_func['return_type']
+
+    # Випадок 1: 'return;' (без виразу)
+    if getSymb()[1] == ';':
+        if expected_type != 'void':
+            semant.failSem(f"A non-void function must return a value of type '{expected_type}'", line)
+    # Випадок 2: 'return <expression>;'
+    else:
+        if expected_type == 'void':
+            semant.failSem("A 'void' function cannot return a value", line)
+
+        expr_type = parseExpression()
+        # Перевіряємо, чи можна тип виразу присвоїти типу повернення функції
+        semant.check_assign(expected_type, expr_type, line)
 
     parseToken(';', 'punct')
     predIndt()
@@ -101,25 +134,40 @@ def parseAssign():
     print(indent + 'parseAssign():')
     global numRow
 
-    # Синтаксис: id assign_op expression ;
-    if getSymb()[2] != 'id':
-        failParse('token mismatch', (getSymb()[0:3], 'expected identifier for assignment'))
+    id_line, id_lex, id_tok, _ = getSymb()
+    _, _, attr = semant.findName(id_lex, semant.currentContext, id_line)
+    id_type = attr[2]
     numRow += 1
 
-    if getSymb()[2] != 'assign_op':
-        failParse('token mismatch', (getSymb()[0:3], 'expected assignment operator (=, +=, etc.)'))
+    assign_line, assign_lex, assign_tok, _ = getSymb()
+    if assign_tok != 'assign_op':
+        failParse('token mismatch', (getSymb()[0:3], 'expected assignment operator'))
     numRow += 1
 
-    # Перевірка на спеціальні функції вводу (синтаксично вони є виразом)
-    next_lex = getSymb()[1]
-    input_functions = {'inputInt', 'inputFloat', 'inputBool', 'inputString'}
-    if next_lex in input_functions:
-        parseToken(next_lex, 'id')
+    if assign_lex == '/=':
+        next_line, next_lex, next_tok, _ = getSymb()
+        if next_tok in ('intnum', 'realnum') and float(next_lex) == 0:
+            semant.failSem("Division by zero literal in '/=' operator", next_line)
+
+    input_map = {'inputInt': 'int', 'inputFloat': 'float', 'inputBool': 'bool', 'inputString': 'string'}
+    if getSymb()[1] in input_map:
+        input_func = getSymb()[1]
+        expected_input_type = input_map[input_func]
+        semant.check_assign(id_type, expected_input_type, assign_line)
+        parseToken(input_func, 'id')
         parseToken('(', 'brackets_op')
         parseToken(')', 'brackets_op')
     else:
-        parseExpression()
+        expr_type = parseExpression()
+        if assign_lex == '=':
+            semant.check_assign(id_type, expr_type, assign_line)
+        else:
+            op_map = {'+=': '+', '-=': '-', '*=': '*', '/=': '/'}
+            arith_op = op_map.get(assign_lex)
+            result_type = semant.check_arithm_op(id_type, arith_op, expr_type, assign_line)
+            semant.check_assign(id_type, result_type, assign_line)
 
+    semant.updateNameVal(id_lex, semant.currentContext, id_line, 'assigned')
     parseToken(';', 'punct')
     predIndt()
 
@@ -128,16 +176,11 @@ def parseIf():
     indent = nextIndt()
     print(indent + 'parseIf():')
     global numRow
-
     parseToken('if', 'keyword')
     parseToken('(', 'brackets_op')
     parseBooleanCondition()
     parseToken(')', 'brackets_op')
-    parseToken('{', 'brackets_op')
-
-    while numRow <= len_tableOfSymb and getSymb()[1] != '}':
-        parseStatement()
-    parseToken('}', 'brackets_op')
+    parseBlock()
 
     while numRow <= len_tableOfSymb and getSymb()[1] == 'elif':
         print(indent + '  found elif')
@@ -145,10 +188,7 @@ def parseIf():
         parseToken('(', 'brackets_op')
         parseBooleanCondition()
         parseToken(')', 'brackets_op')
-        parseToken('{', 'brackets_op')
-        while numRow <= len_tableOfSymb and getSymb()[1] != '}':
-            parseStatement()
-        parseToken('}', 'brackets_op')
+        parseBlock()
 
     if numRow <= len_tableOfSymb and getSymb()[1] == 'else':
         print(indent + '  found else')
@@ -158,10 +198,7 @@ def parseIf():
 
 def parseElse():
     parseToken('else', 'keyword')
-    parseToken('{', 'brackets_op')
-    while numRow <= len_tableOfSymb and getSymb()[1] != '}':
-        parseStatement()
-    parseToken('}', 'brackets_op')
+    parseBlock()
 
 
 def parseWhile():
@@ -171,10 +208,7 @@ def parseWhile():
     parseToken('(', 'brackets_op')
     parseBooleanCondition()
     parseToken(')', 'brackets_op')
-    parseToken('{', 'brackets_op')
-    while numRow <= len_tableOfSymb and getSymb()[1] != '}':
-        parseStatement()
-    parseToken('}', 'brackets_op')
+    parseBlock()
     predIndt()
 
 
@@ -182,10 +216,7 @@ def parseDoWhile():
     indent = nextIndt()
     print(indent + 'parseDoWhile():')
     parseToken('do', 'keyword')
-    parseToken('{', 'brackets_op')
-    while numRow <= len_tableOfSymb and getSymb()[1] != '}':
-        parseStatement()
-    parseToken('}', 'brackets_op')
+    parseBlock()
     parseToken('while', 'keyword')
     parseToken('(', 'brackets_op')
     parseBooleanCondition()
@@ -198,27 +229,33 @@ def parseFor():
     indent = nextIndt()
     print(indent + 'parseFor():')
     global numRow
-
     parseToken('for', 'keyword')
     parseToken('(', 'brackets_op')
     parseDeclaration()
     parseBooleanCondition()
     parseToken(';', 'punct')
 
-    # Ручний розбір інкремента (виразу присвоєння)
-    if getSymb()[2] != 'id':
-        failParse('token mismatch', (getSymb()[0:3], 'expected identifier in for increment'))
+    id_line, id_lex, id_tok, _ = getSymb()
+    _, _, attr = semant.findName(id_lex, semant.currentContext, id_line)
+    id_type = attr[2]
     numRow += 1
-    if getSymb()[2] != 'assign_op':
+
+    assign_line, assign_lex, assign_tok, _ = getSymb()
+    if assign_tok != 'assign_op':
         failParse('token mismatch', (getSymb()[0:3], 'expected assignment operator'))
     numRow += 1
-    parseExpression()
+    expr_type = parseExpression()
+
+    if assign_lex == '=':
+        semant.check_assign(id_type, expr_type, assign_line)
+    else:
+        op_map = {'+=': '+', '-=': '-', '*=': '*', '/=': '/'}
+        arith_op = op_map.get(assign_lex)
+        result_type = semant.check_arithm_op(id_type, arith_op, expr_type, assign_line)
+        semant.check_assign(id_type, result_type, assign_line)
 
     parseToken(')', 'brackets_op')
-    parseToken('{', 'brackets_op')
-    while numRow <= len_tableOfSymb and getSymb()[1] != '}':
-        parseStatement()
-    parseToken('}', 'brackets_op')
+    parseBlock()
     predIndt()
 
 
@@ -226,10 +263,9 @@ def parseSwitch():
     indent = nextIndt()
     print(indent + 'parseSwitch():')
     global numRow
-
     parseToken('switch', 'keyword')
-    if getSymb()[2] != 'id':
-        failParse('token mismatch', (getSymb()[0:3], 'expected identifier after switch'))
+    line, lex, tok, _ = getSymb()
+    semant.findName(lex, semant.currentContext, line)
     numRow += 1
     parseToken('{', 'brackets_op')
 
@@ -246,14 +282,12 @@ def parseCase():
     indent = nextIndt()
     print(indent + 'parseCase():')
     global numRow
-
     parseToken('case', 'keyword')
-    tok = getSymb()[2]
+    _, _, tok, _ = getSymb()
     if tok not in ('intnum', 'realnum', 'stringval'):
         failParse('token mismatch', (getSymb()[0:3], 'expected a constant value'))
     numRow += 1
     parseToken(':', 'punct')
-
     while numRow <= len_tableOfSymb and getSymb()[1] not in ('case', 'default', '}'):
         parseStatement()
     predIndt()
@@ -284,19 +318,45 @@ def parseFunctionDeclaration():
     indent = nextIndt()
     print(indent + 'parseFunctionDeclaration():')
     global numRow
-    # 1. Тип, що повертається
-    parseToken(getSymb()[1], 'keyword')
-    # 2. Ім'я функції
-    if getSymb()[2] != 'id':
+
+    return_line, return_type, _, _ = getSymb()
+    parseToken(return_type, 'keyword')
+
+    func_line, func_name, func_tok, _ = getSymb()
+    if func_tok != 'id':
         failParse('token mismatch', (getSymb()[0:3], 'expected function name'))
     numRow += 1
-    # 3. Список параметрів
+
+    parent_context = semant.currentContext
+    # Попередньо додаємо функцію, поки без списку параметрів
+    semant.insertName(parent_context, func_name, func_line, (0, 'function', return_type, 'defined', []))
+
+    # Входимо в нову область видимості
+    semant.currentContext = func_name
+    semant.tabName[semant.currentContext] = {'declIn': parent_context}
+    semant.functionContextStack.append({'name': func_name, 'return_type': return_type, 'has_return': False})
+
     parseToken('(', 'brackets_op')
+    param_types = []
     if getSymb()[1] != ')':
-        parseParameterList()
+        param_types = parseParameterList()
     parseToken(')', 'brackets_op')
-    # 4. Тіло функції (викликаємо parseBlock)
+
+    # Оновлюємо запис про функцію, додаючи типи параметрів
+    func_attr = list(semant.tabName[parent_context][func_name])
+    func_attr[4] = param_types
+    semant.tabName[parent_context][func_name] = tuple(func_attr)
+    print(f"Semantic: Updated function '{func_name}' with parameter types: {param_types}")
+
     parseBlock()
+
+    current_func = semant.functionContextStack.pop()
+    # Якщо функція не void і в ній не було жодного return
+    if current_func['return_type'] != 'void' and not current_func['has_return']:
+        semant.failSem(f"Function '{func_name}' must return a value of type '{return_type}'", func_line)
+
+    # Повертаємось до попередньої області видимості
+    semant.currentContext = parent_context
     predIndt()
 
 
@@ -304,16 +364,11 @@ def parseBlock():
     indent = nextIndt()
     print(indent + 'parseBlock():')
     global numRow
-    # Синтаксис блоку: { (Declaration | Statement)* }
     parseToken('{', 'brackets_op')
-
     while numRow <= len_tableOfSymb and getSymb()[1] != '}':
-        # Логіка всередині блоку ідентична головному циклу програми
         _, lex, tok, _ = getSymb()
-
         if lex in ('int', 'float', 'bool', 'string'):
-            # Перевіряємо, чи це оголошення функції, чи змінної
-            if numRow + 1 < len_tableOfSymb and lexer.tableOfLex[numRow + 2][1] == '(':
+            if numRow + 2 < len_tableOfSymb and lexer.tableOfLex[numRow + 2][1] == '(':
                 parseFunctionDeclaration()
             else:
                 parseDeclaration()
@@ -321,12 +376,9 @@ def parseBlock():
             parseStatement()
         elif tok == 'comment':
             numRow += 1
-        elif lex in ('{', '}'):  # Порожні вкладені блоки
-            numRow += 1
         else:
             failParse('instruction mismatch',
                       (getSymb()[0], lex, tok, 'Expected declaration or statement inside block'))
-
     parseToken('}', 'brackets_op')
     predIndt()
 
@@ -335,173 +387,247 @@ def parseParameterList():
     indent = nextIndt()
     print(indent + 'parseParameterList():')
     global numRow
-    # Перший параметр
-    parseToken(getSymb()[1], 'keyword')  # Тип параметра
+    param_types = []
+
+    p_line, p_type, _, _ = getSymb()
+    parseToken(p_type, 'keyword')
+    param_types.append(p_type)
+
+    id_line, id_lex, _, _ = getSymb()
     if getSymb()[2] != 'id':
         failParse('token mismatch', (getSymb()[0:3], 'expected parameter name'))
+
+    attr = (len(semant.tabName[semant.currentContext]), 'variable', p_type, 'assigned', '-')
+    semant.insertName(semant.currentContext, id_lex, id_line, attr)
     numRow += 1
-    # Наступні параметри (якщо є)
+
     while numRow <= len_tableOfSymb and getSymb()[1] == ',':
-        numRow += 1  # Пропускаємо кому
-        parseToken(getSymb()[1], 'keyword')  # Тип параметра
+        numRow += 1
+        p_line, p_type, _, _ = getSymb()
+        parseToken(p_type, 'keyword')
+        param_types.append(p_type)
+        id_line, id_lex, _, _ = getSymb()
         if getSymb()[2] != 'id':
             failParse('token mismatch', (getSymb()[0:3], 'expected parameter name'))
+
+        attr = (len(semant.tabName[semant.currentContext]), 'variable', p_type, 'assigned', '-')
+        semant.insertName(semant.currentContext, id_lex, id_line, attr)
         numRow += 1
 
     predIndt()
+    return param_types
 
 
 def parseBooleanCondition():
     indent = nextIndt()
     print(indent + 'parseBooleanCondition():')
-    # Синтаксично, будь-який вираз може бути умовою
-    parseExpression()
+    line, _, _, _ = getSymb()
+    expr_type = parseExpression()
+    if expr_type != 'bool':
+        semant.failSem(f"Condition must be of type 'bool', not '{expr_type}'", line)
     predIndt()
 
 
 def parseExpression():
     indent = nextIndt()
     print(indent + 'parseExpression():')
-
-    parseOr()  # Починаємо з найнижчого пріоритету
-
-    # Обробка тернарного оператора
+    l_type = parseOr()
     if numRow <= len_tableOfSymb and getSymb()[1] == '?':
+        line_tern, _, _, _ = getSymb()
+        if l_type != 'bool':
+            semant.failSem("Ternary operator condition must be of type 'bool'", line_tern)
         parseToken('?', 'tern_op')
-        parseExpression()
+        true_type = parseExpression()
         parseToken(':', 'punct')
-        parseExpression()
-
+        false_type = parseExpression()
+        if not semant.can_assign(true_type, false_type) and not semant.can_assign(false_type, true_type):
+            semant.failSem(f"Ternary operator result types are incompatible: '{true_type}' and '{false_type}'",
+                           line_tern)
+        l_type = 'float' if 'float' in (true_type, false_type) else true_type
     predIndt()
+    return l_type
 
 
 def parseOr():
     indent = nextIndt()
     print(indent + 'parseOr():')
     global numRow
-    parseAnd()
+    l_type = parseAnd()
     while numRow <= len_tableOfSymb and getSymb()[1] == '||':
+        line, lex, _, _ = getSymb()
         numRow += 1
-        parseAnd()
+        r_type = parseAnd()
+        l_type = semant.check_logic_op(l_type, lex, r_type, line)
     predIndt()
+    return l_type
 
 
 def parseAnd():
     indent = nextIndt()
     print(indent + 'parseAnd():')
     global numRow
-    parseRel()
+    l_type = parseRel()
     while numRow <= len_tableOfSymb and getSymb()[1] == '&&':
+        line, lex, _, _ = getSymb()
         numRow += 1
-        parseRel()
+        r_type = parseRel()
+        l_type = semant.check_logic_op(l_type, lex, r_type, line)
     predIndt()
+    return l_type
 
 
 def parseRel():
     indent = nextIndt()
     print(indent + 'parseRel():')
     global numRow
-    parseArithmExpression()
+    l_type = parseArithmExpression()
     if numRow <= len_tableOfSymb and getSymb()[2] == 'rel_op':
+        line, lex, _, _ = getSymb()
         numRow += 1
-        parseArithmExpression()
+        r_type = parseArithmExpression()
+        semant.check_rel_op(l_type, lex, r_type, line)
+        return 'bool'
     predIndt()
+    return l_type
 
 
 def parseArithmExpression():
     indent = nextIndt()
     print(indent + 'parseArithmExpression():')
     global numRow
-    parseTerm()
+    l_type = parseTerm()
     while numRow <= len_tableOfSymb and getSymb()[2] == 'add_op':
+        line, lex, _, _ = getSymb()
         numRow += 1
-        parseTerm()
+        r_type = parseTerm()
+        l_type = semant.check_arithm_op(l_type, lex, r_type, line)
     predIndt()
+    return l_type
 
 
 def parseTerm():
     indent = nextIndt()
     print(indent + 'parseTerm():')
     global numRow
-    parsePower()
+    l_type = parsePower()
     while numRow <= len_tableOfSymb and getSymb()[2] == 'mult_op':
+        op_line, op_lex, _, _ = getSymb()
+
+        if op_lex == '/':
+            next_line, next_lex, next_tok, _ = lexer.tableOfLex[numRow + 1]
+            if next_tok in ('intnum', 'realnum') and float(next_lex) == 0:
+                semant.failSem("Division by zero literal", next_line)
+
         numRow += 1
-        parsePower()
+        r_type = parsePower()
+        l_type = semant.check_arithm_op(l_type, op_lex, r_type, op_line)
     predIndt()
+    return l_type
 
 
 def parsePower():
     indent = nextIndt()
     print(indent + 'parsePower():')
     global numRow
-    parseFactor()
+    l_type = parseFactor()
     if numRow <= len_tableOfSymb and getSymb()[2] == 'pow_op':
+        line, lex, _, _ = getSymb()
         numRow += 1
-        parseFactor()
+        r_type = parseFactor()
+        l_type = semant.check_arithm_op(l_type, lex, r_type, line)
     predIndt()
+    return l_type
 
 
 def parseFactor():
     indent = nextIndt()
     print(indent + 'parseFactor():')
     global numRow
-
     line, lex, tok, _ = getSymb()
-
+    factor_type = 'type_error'
     if (lex, tok) in (('+', 'add_op'), ('-', 'add_op')):
         numRow += 1
-        parseFactor()
+        factor_type = parseFactor()
+        if factor_type not in ('int', 'float'):
+            semant.failSem(f"Unary operator '{lex}' can only be applied to 'int' or 'float', not '{factor_type}'",
+                           line)
     elif tok in ('intnum', 'realnum', 'stringval', 'boolval'):
         numRow += 1
+        if tok == 'intnum':
+            factor_type = 'int'
+        elif tok == 'realnum':
+            factor_type = 'float'
+        elif tok == 'stringval':
+            factor_type = 'string'
+        else:
+            factor_type = 'bool'
     elif tok == 'id':
-        # Заглядаємо наперед, щоб відрізнити змінну від виклику функції
         if numRow + 1 < len_tableOfSymb and lexer.tableOfLex[numRow + 1][1] == '(':
-            parseFunctionCall()
-        else:  # Це звичайна змінна
+            factor_type = parseFunctionCall()
+        else:
+            _, _, attr = semant.findName(lex, semant.currentContext, line)
+            factor_type = attr[2]
             numRow += 1
-    # --- КІНЕЦЬ ОНОВЛЕННЯ ---
     elif lex == '(':
         parseToken('(', 'brackets_op')
-        parseExpression()
+        factor_type = parseExpression()
         parseToken(')', 'brackets_op')
     elif lex == '!':
         numRow += 1
-        parseFactor()
+        factor_type = parseFactor()
+        if factor_type != 'bool':
+            semant.failSem(f"Operator '!' can only be applied to 'bool', not '{factor_type}'", line)
+        factor_type = 'bool'
     else:
-        failParse('token mismatch',
-                  (line, lex, tok, 'expected number, identifier, expression, or unary operator'))
+        failParse('token mismatch', (line, lex, tok, 'expected number, identifier, expression, or unary operator'))
     predIndt()
+    return factor_type
 
 
 def parseFunctionCall():
     indent = nextIndt()
     print(indent + 'parseFunctionCall():')
     global numRow
-    # Синтаксис: id ( [arguments] )
-    if getSymb()[2] != 'id':
-        failParse('token mismatch', (getSymb()[0:3], 'expected function name for a call'))
+    line, lex, tok, _ = getSymb()
+    _, _, attr = semant.findName(lex, semant.currentContext, line)
+    if attr[1] != 'function':
+        semant.failSem(f"'{lex}' is not a function", line)
+
+    expected_param_types = attr[4]
     numRow += 1
 
     parseToken('(', 'brackets_op')
+    actual_arg_types = []
     if getSymb()[1] != ')':
-        parseArgumentList()
+        actual_arg_types = parseArgumentList()
     parseToken(')', 'brackets_op')
+
+    if len(expected_param_types) != len(actual_arg_types):
+        semant.failSem(
+            f"Function '{lex}' expects {len(expected_param_types)} arguments, but {len(actual_arg_types)} were given",
+            line)
+
+    for i, (expected, actual) in enumerate(zip(expected_param_types, actual_arg_types)):
+        if not semant.can_assign(expected, actual):
+            semant.failSem(
+                f"Incorrect type for argument {i + 1} in function '{lex}': expected '{expected}', but got '{actual}'",
+                line)
+
     predIndt()
+    return attr[2]  # Повертаємо тип, який повертає функція
 
 
 def parseArgumentList():
     indent = nextIndt()
     print(indent + 'parseArgumentList():')
     global numRow
-
-    # Синтаксис: expression [, expression]*
-    parseExpression()  # Перший аргумент
-
+    arg_types = []
+    arg_types.append(parseExpression())
     while numRow <= len_tableOfSymb and getSymb()[1] == ',':
-        numRow += 1  # Пропускаємо кому
-        parseExpression()  # Наступний аргумент
-
+        numRow += 1
+        arg_types.append(parseExpression())
     predIndt()
+    return arg_types
 
 
 def parseToken(lexeme, token):
@@ -573,8 +699,17 @@ def predIndt():
 if FSuccess == ('Rocket', True):
     try:
         parseProgram()
-        print("\nPARSER SUCCESS")
-    except SystemExit:
-        print(f"\nPARSER FAIL")
+        print("\nSYNTAX AND SEMANTIC ANALYSIS SUCCESSFUL")
+        print("\nFinal Symbol Table:")
+        import json
+
+
+        def default_serializer(o):
+            return str(o)
+
+
+        print(json.dumps(semant.tabName, indent=2, ensure_ascii=False, default=default_serializer))
+    except SystemExit as e:
+        print(f"\nANALYSIS FAILED")
 else:
-    print("\nPARSER FAIL DUE TO LEXER FAIL")
+    print("\nPARSER NOT STARTED DUE TO LEXICAL ERRORS")
