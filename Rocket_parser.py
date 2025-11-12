@@ -21,12 +21,22 @@ def parseProgram():
             break
         _, lex, tok, _ = getSymb()
 
-        if lex in ('int', 'float', 'bool', 'string', 'void'):
+        if lex in ('int', 'float', 'bool', 'string', 'void', 'const'):
             # Перевіряємо, чи наступний токен після ID - це '(', щоб відрізнити функцію
-            if numRow + 2 < len_tableOfSymb and lexer.tableOfLex[numRow + 2][1] == '(':
+            # Ця логіка може бути не ідеальною для 'const', але для 'const int ...' спрацює
+            func_check_row = numRow
+            if lex == 'const':
+                func_check_row += 1  # Пропускаємо 'const', щоб дивитись на 'int'
+
+            # (Примітка: ця логіка все одно не дасть створити 'const' функцію, що логічно)
+            if func_check_row + 2 < len_tableOfSymb and lexer.tableOfLex[func_check_row + 2][1] == '(':
                 # 'void' може бути тільки типом повернення функції, не змінної
                 if lex == 'void':
                     parseFunctionDeclaration()
+                # 'const' не може бути початком функції (в нашій граматиці)
+                elif lex == 'const':
+                    failParse('grammar mismatch',
+                              (getSymb()[0], lex, tok, "Cannot declare a 'const' function"))
                 else:  # int, float, etc. можуть бути і тим, і тим
                     parseFunctionDeclaration()
             elif lex != 'void':  # 'void' не може бути типом змінної
@@ -51,7 +61,18 @@ def parseDeclaration():
     print(indent + 'parseDeclaration():')
     global numRow
 
+    # --- Нова логіка для 'const' ---
+    is_constant = False
+    if getSymb()[1] == 'const':
+        is_constant = True
+        parseToken('const', 'keyword') # З'їдаємо токен 'const'
+    # ---------------------------------
+
     line, declared_type, tok, _ = getSymb()
+    # Перевірка, що 'void' не використовується для змінних/констант
+    if declared_type == 'void':
+        failParse('type mismatch',
+                  (getSymb()[0], declared_type, tok, "'void' can only be used as a function return type"))
     parseToken(declared_type, 'keyword')
 
     id_line, id_lex, id_tok, _ = getSymb()
@@ -65,8 +86,17 @@ def parseDeclaration():
         expr_type = parseExpression()
         semant.check_assign(declared_type, expr_type, line)
         val_status = 'assigned'
+    # --- Нова семантична перевірка ---
+    elif is_constant:
+        # Якщо це 'const', але ми не зайшли у 'if' вище — це помилка
+        semant.failSem(f"Constant identifier '{id_lex}' must be initialized", id_line)
+    # ---------------------------------
 
-    attr = (len(semant.tabName[semant.currentContext]), 'variable', declared_type, val_status, '-')
+    # Визначаємо, що писати в tabName: 'variable' чи 'constant'
+    id_kind = 'constant' if is_constant else 'variable'
+
+    # Змінюємо 'variable' на id_kind
+    attr = (len(semant.tabName[semant.currentContext]), id_kind, declared_type, val_status, '-')
     semant.insertName(semant.currentContext, id_lex, id_line, attr)
     parseToken(';', 'punct')
     predIndt()
@@ -136,6 +166,13 @@ def parseAssign():
 
     id_line, id_lex, id_tok, _ = getSymb()
     _, _, attr = semant.findName(id_lex, semant.currentContext, id_line)
+
+    # --- ГОЛОВНА ПЕРЕВІРКА ---
+    # Атрибут attr[1] - це наш 'id_kind' ('variable' або 'constant')
+    if attr[1] == 'constant':
+        semant.failSem(f"Cannot assign to constant identifier '{id_lex}'", id_line)
+    # -------------------------
+
     id_type = attr[2]
     numRow += 1
 
@@ -529,12 +566,19 @@ def parsePower():
     indent = nextIndt()
     print(indent + 'parsePower():')
     global numRow
-    l_type = parseFactor()
+    l_type = parseFactor()  # Розбираємо ліву частину (напр. '2')
+
     if numRow <= len_tableOfSymb and getSymb()[2] == 'pow_op':
-        line, lex, _, _ = getSymb()
+        line, lex, _, _ = getSymb()  # Бачимо '^'
         numRow += 1
-        r_type = parseFactor()
+
+        # Рекурсивно викликаємо parsePower() для розбору ВСЬОГО, що йде праворуч
+        # напр. '3 ^ 4'
+        r_type = parsePower()  # <--- ОСЬ ГОЛОВНА ЗМІНА
+
+        # Об'єднуємо '2' з результатом '(3 ^ 4)'
         l_type = semant.check_arithm_op(l_type, lex, r_type, line)
+
     predIndt()
     return l_type
 
