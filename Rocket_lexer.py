@@ -9,10 +9,10 @@ tokenTable = {
 
     # ключові слова (Rocket)
     'int': 'keyword', 'float': 'keyword', 'bool': 'keyword', 'string': 'keyword',
-    'print': 'keyword', 'void': 'keyword',
-    'if': 'keyword', 'elif': 'keyword', 'else': 'keyword', # 'elif'
+    'print': 'keyword', 'void': 'keyword', 'const': 'keyword',
+    'if': 'keyword', 'elif': 'keyword', 'else': 'keyword',
     'switch': 'keyword', 'case': 'keyword', 'default': 'keyword',
-    'while': 'keyword', 'do': 'keyword', 'for': 'keyword', # 'do'
+    'while': 'keyword', 'do': 'keyword', 'for': 'keyword',
     'return': 'keyword', 'break': 'keyword',
 
     # логічні оператори
