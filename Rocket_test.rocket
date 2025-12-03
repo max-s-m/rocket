@@ -3,13 +3,14 @@
 
 // Глобальні оголошення змінних з усіма типами
 int a = 0;
+const int b = 1;
 int aa = 1;
 float pi = 3.14;
 bool ok = true;
 string name = "Rocket";
 
 // Арифметика та логіка
-a = 5 + 3*2 - 1 ^ 2;
+a = 5 + 3*2 - 1 ^ 2 ^ 3;
 pi = -(-12 / 2.0) ^ 3 * 4;          // степінь через ^
 ok = !false && true || false;
 
