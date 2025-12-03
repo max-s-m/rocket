@@ -21,7 +21,11 @@ def parseProgram():
         if numRow > len_tableOfSymb: break
         _, lex, tok, _ = getSymb()
 
-        if lex in ('int', 'float', 'bool', 'string', 'void'):
+        if lex == 'const':
+            parseToken('const', 'keyword')
+            parseDeclaration(kind='constant')
+
+        elif lex in ('int', 'float', 'bool', 'string', 'void'):
             if numRow + 2 < len_tableOfSymb and lexer.tableOfLex[numRow + 2][1] == '(':
                 parseFunctionDeclaration()
             elif lex != 'void':
@@ -38,7 +42,7 @@ def parseProgram():
                       (getSymb()[0], lex, tok, 'Expected global declaration, function, or statement'))
 
 
-def parseDeclaration():
+def parseDeclaration(kind='variable'):
     indent = nextIndt()
     print(indent + 'parseDeclaration():')
     global numRow
@@ -56,7 +60,9 @@ def parseDeclaration():
         semant.check_assign(declared_type, expr_type, line)
         poliz.postfix_code_gen('=', 'assign_op')
         val_status = 'assigned'
-    attr = (len(semant.tabName[semant.currentContext]), 'variable', declared_type, val_status, '-')
+    elif kind == 'constant':
+        semant.failSem("Constants must be initialized during declaration", id_line)
+    attr = (len(semant.tabName[semant.currentContext]), kind, declared_type, val_status, '-')
     semant.insertName(semant.currentContext, id_lex, id_line, attr)
     parseToken(';', 'punct')
     predIndt()
@@ -132,6 +138,9 @@ def parseAssign():
     id_line, id_lex, _, _ = getSymb()
     _, _, attr = semant.findName(id_lex, semant.currentContext, id_line)
     id_type = attr[2]
+    id_kind = attr[1]
+    if id_kind == 'constant':
+        semant.failSem(f"Cannot assign to constant '{id_lex}'", id_line)
     numRow += 1
     assign_line, assign_lex, assign_tok, _ = getSymb()
     if assign_tok != 'assign_op':
@@ -281,7 +290,11 @@ def parseFor():
     parseToken('for', 'keyword')
     parseToken('(', 'brackets_op')
 
-    parseDeclaration()
+    kind = 'variable'
+    if getSymb()[1] == 'const':
+        parseToken('const', 'keyword')
+        kind = 'constant'
+    parseDeclaration(kind)
 
     poliz.set_label_value(label_cond)
     poliz.postfix_code_gen(':', 'colon')
@@ -309,6 +322,9 @@ def parseFor():
 
     _, _, attr = semant.findName(id_lex, semant.currentContext, id_line)
     id_type = attr[2]
+
+    if attr[1] == 'constant':
+        semant.failSem(f"Cannot increment constant '{id_lex}'", id_line)
 
     numRow += 1
     assign_line, assign_lex, assign_tok, _ = getSymb()
@@ -443,7 +459,10 @@ def parseBlock():
     parseToken('{', 'brackets_op')
     while numRow <= len_tableOfSymb and getSymb()[1] != '}':
         _, lex, tok, _ = getSymb()
-        if lex in ('int', 'float', 'bool', 'string', 'void'):
+        if lex == 'const':
+            parseToken('const', 'keyword')
+            parseDeclaration(kind='constant')
+        elif lex in ('int', 'float', 'bool', 'string', 'void'):
             if numRow + 2 < len_tableOfSymb and lexer.tableOfLex[numRow + 2][1] == '(':
                 parseFunctionDeclaration()
             elif lex != 'void':
@@ -611,7 +630,7 @@ def parsePower():
     print(indent + 'parsePower():')
     global numRow
     l_type = parseFactor()
-    if numRow <= len_tableOfSymb and getSymb()[2] == 'pow_op':
+    while numRow <= len_tableOfSymb and getSymb()[2] == 'pow_op':
         line, lex, tok, _ = getSymb()
         numRow += 1
         r_type = parseFactor()
