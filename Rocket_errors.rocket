@@ -29,7 +29,7 @@ b /=1;
 
 //ПОМИЛКА: функція з типом не повертає нічого
 //int intfail(float ff){
-//print("bad");
+//print("this is bad");
 //}
 
 //ПОМИЛКА: void-функція має повернення
@@ -49,6 +49,7 @@ print("This is void");
 //c = latefunc(10);
 
 int latefunc(int lateint){
+//int lateint = 22;
 return lateint - 1;
 }
 
