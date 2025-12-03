@@ -2,7 +2,6 @@
 rocket_file_name = 'Rocket_test.rocket'
 
 # таблиця лексем, що визначаються за своїм повним ім'ям
-
 tokenTable = {
     # булеві константи
     'true': 'boolval',
@@ -14,8 +13,7 @@ tokenTable = {
     'if': 'keyword', 'elif': 'keyword', 'else': 'keyword', # 'elif'
     'switch': 'keyword', 'case': 'keyword', 'default': 'keyword',
     'while': 'keyword', 'do': 'keyword', 'for': 'keyword', # 'do'
-    'return': 'keyword',
-    'const': 'keyword',  # <--- ОДИН РЯДОК, ЯКИЙ ТРЕБА ДОДАТИ
+    'return': 'keyword', 'break': 'keyword',
 
     # логічні оператори
     '&&': 'logic_op', '||': 'logic_op', '!': 'logic_op',
