@@ -1,0 +1,25 @@
+.target: Postfix Machine
+.version: 0.3
+
+.vars(
+)
+
+.globVarList(
+	a
+)
+
+.funcs(
+	myfunc	int	2
+	check_a	void	0
+)
+
+.labels(
+)
+
+.code(
+	"Hello, current a value:"	string
+	PRINT     	out_op
+	a         	r-val
+	PRINT     	out_op
+	RET       	RET
+)

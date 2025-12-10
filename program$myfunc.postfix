@@ -1,0 +1,27 @@
+.target: Postfix Machine
+.version: 0.3
+
+.vars(
+	a	int
+	b	int
+	c	int
+)
+
+.funcs(
+	myfunc	int	2
+)
+
+.labels(
+)
+
+.code(
+	"This is func"	string
+	PRINT     	out_op
+	c         	l-val
+	a         	r-val
+	b         	r-val
+	+         	math_op
+	=         	assign_op
+	c         	r-val
+	RET       	RET
+)
